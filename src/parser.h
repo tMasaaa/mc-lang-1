@@ -129,7 +129,13 @@ static std::unique_ptr<ExprAST> ParseParenExpr() {
     // 4. getNextToken()を呼んでトークンを一つ進め、2で呼んだParseExpressionの返り値を返します。
     //
     // 課題を解く時はこの行を消してここに実装して下さい。
-    return nullptr;
+    // return nullptr;
+    getNextToken();
+    auto Result = ParseExpression();
+    if(CurTok != ')')
+        return LogError("no parenthesis end found when expecting token `)`");
+    getNextToken();
+    return Result;
 }
 
 // ParsePrimary - NumberASTか括弧をパースする関数
@@ -151,7 +157,7 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
 static std::unique_ptr<ExprAST> ParseBinOpRHS(int CallerPrec,
         std::unique_ptr<ExprAST> LHS) {
     // 課題を解く時はこの行を消して下さい。
-    return LHS;
+    // return LHS;
     while (true) {
         // 1. 現在の二項演算子の結合度を取得する。 e.g. int tokprec = GetTokPrecedence();
 
@@ -177,6 +183,19 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int CallerPrec,
 
         // LHS, RHSをBinaryASTにしてLHSに代入する。
         //LHS = llvm::make_unique<BinaryAST>(BinOp, std::move(LHS), std::move(RHS));
+        int tokprec = GetTokPrecedence();
+        if(tokprec < CallerPrec) // e.g. 20 < 40
+            return LHS;
+        int BinOp = CurTok;
+        getNextToken();
+        auto RHS = ParsePrimary();
+        int NextPrec = GetTokPrecedence();
+        if(tokprec < NextPrec) {
+            RHS = ParseBinOpRHS(tokprec + 1, std::move(RHS));
+            if(!RHS)
+                return nullptr;
+        }
+        LHS = llvm::make_unique<BinaryAST>(BinOp, std::move(LHS), std::move(RHS));
     }
 }
 
