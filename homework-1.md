@@ -35,7 +35,7 @@ if(std::isdigit(lastChar)) {
 }
 ```
 - strtodと書かれていたが、string to intならstodがよい。と思ってreference見たら呼び出してるのは結局strtodなんですね。どちらでもよさそう。(https://cpprefjp.github.io/reference/string/stod.html)
-- 言われたとおり実装すればよい。setNumValとか、tok_numberが-5を返すとか、つまづくことは多かった(けど1ファイル内にかかれていて助かった)
+- 誘導の通りに実装すればよい。setNumValとか、tok_numberが-5を返すとか、つまづくことは多かった(けど1ファイル内にかかれていて助かった)
 - includeはmc.cppで行っているので、普通にstdが使える。分割ファイルの仕組みを知らなかったが、includeは`.cpp`で行うものらしい。
 
 # hw 1-4
@@ -52,8 +52,12 @@ if (lastChar == '#') { // `#` is 35
     return gettok();
 }
 ```
-- intでやっているところでつまづいた
-- あとEOFだとアウトだった。getNextCharが0を返すので、0が来ると読み込んでないということになるので、0がきたらEOFと判断してよい。
+- lastCharをintでやっているところで、CharとInt比較していいのかつまづいた(このくらいの型ならキャストしてしまうんですね)
+- あとEOFだとアウトだった。getNextCharが文字が来ないときに0を返すので、0が来ると読み込んでないということになるので、0がきたらEOFと判断してよい。(EOF自体は`-1`であるため、EOF時にgetNextCharが0を返すとうまくいかない)
+- 例えば、`lastChar != EOF`にしていると、以下のようなファイルではwhileループが終わらない(末尾の改行なし)
+```
+0 # comment
+```
 
 # hw 1-5
 - `(`を呼び出すのはparserではなくtokenizerの方でやっている
@@ -65,8 +69,8 @@ if(CurTok != ')')
 getNextToken();
 return Result;
 ```
-- まじで言われた通りやるとできた。内容も理解。
-- CurTokがグローバルで宣言されているのがポイント。
+- 誘導の通りに実装。内容も理解。
+- CurTokはグローバルで宣言されている。
 
 # hw 1-6
 - LHSと現在のBinOpが渡される -> そこからRHSを生成して、LHS、BinOp、RHSのセットを返す。
@@ -86,10 +90,11 @@ if(tokprec < NextPrec) {
 }
 LHS = llvm::make_unique<BinaryAST>(BinOp, std::move(LHS), std::move(RHS));
 ```
-- ` RHS = ParseBinOpRHS(tokprec + 1, std::move(RHS));`はRHSをLHSとして再帰呼び出ししている。moveとかよく分からなかった。(moveにするとメモリ消費が抑えられるとか？うーん)
+- ` RHS = ParseBinOpRHS(tokprec + 1, std::move(RHS));`はRHSをLHSとして再帰呼び出ししている。~~moveとかよく分からなかった。(moveにするとメモリ消費が抑えられるとか？うーん)~~
+- `std::move`は所有権のことですね。`tokprec + 1`の+1がよくわからなかった。(なくても動くような...)
 
 # hw 1-7
-- https://anoopsarkar.github.io/compilers-class/llvm-practice.html ここに演算子ごとのIRが載っている
+- https://anoopsarkar.github.io/compilers-class/llvm-practice.html ここに演算子ごとのIR対応表。(でも公式見たほうが早いかも)
 - `const Twine & 	Name = "",`だから名前を`subtmp`とかにしているっぽい
 - Twine - A lightweight data structure for efficiently representing the concatenation of temporary values as strings. More...
 - https://llvm.org/doxygen/classllvm_1_1Twine.html
@@ -99,4 +104,4 @@ case '-':
 case '*':
   return Builder.CreateMul(L, R, "multmp");
 ```
-- これは割と指示通りにするだけなのでつまづかなかった。
+- 誘導の通り実装する。
