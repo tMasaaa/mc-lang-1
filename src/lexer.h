@@ -10,6 +10,12 @@
 // このLexerでは、EOFと数値以外は[0-255]を返す('+'や'-'を含む)。
 enum Token {
     tok_eof = -1,
+
+    // commands
+    tok_def = -2,
+
+    // primary
+    tok_identifier = -4,
     tok_number = -5,
 };
 
@@ -65,9 +71,23 @@ class Lexer {
                     // getNextChar is return 0 when no char
                     // `\n`(LF) is 10
                     // EOF is -1 ?  
+                    // std::cout << lastChar << std::endl;
                     lastChar = getNextChar(iFile);
                 }
                 return gettok();
+            }
+
+            // isalphabet?
+            // def
+            if (std::isalpha(lastChar)) {
+                std::string ident = "";
+                ident += lastChar;
+                while(std::isalpha(lastChar = getNextChar(iFile)))
+                    ident += lastChar;
+                if (ident == "def")
+                    return tok_def;
+                setIdentifierStr(ident);
+                return tok_identifier;
             }
             // EOFならtok_eofを返す
             if (iFile.eof())
@@ -76,6 +96,7 @@ class Lexer {
             // tok_numberでもtok_eofでもなければそのcharのasciiを返す
             int thisChar = lastChar;
             lastChar = getNextChar(iFile);
+            // std::cout<<"lexerReturn "<<(char)thisChar<<std::endl;
             return thisChar;
         }
 
@@ -83,11 +104,17 @@ class Lexer {
         uint64_t getNumVal() { return numVal; }
         void setnumVal(uint64_t numval) { numVal = numval; }
 
+        std::string getIdentifierStr() { return identifierStr; }
+        void setIdentifierStr(std::string identifierstr) {
+            identifierStr = identifierstr;
+        } 
+
         void initStream(std::string fileName) { iFile.open(fileName); }
 
     private:
         std::ifstream iFile;
         uint64_t numVal;
+        std::string identifierStr;
         static char getNextChar(std::ifstream &is) {
             char c = '\0';
             if (is.good())

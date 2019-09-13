@@ -26,6 +26,16 @@ namespace {
             Value *codegen() override;
     };
 
+    // VariableAST
+    class VariableAST : public ExprAST {
+        std::string Name;
+
+        public:
+            VariableAST(const std::string &Name) : Name(Name) {}
+
+            Value *codegen() override;
+    };
+
     // BinaryAST - `+`や`*`等の二項演算子を表すクラス
     class BinaryAST : public ExprAST {
         char Op;
@@ -38,7 +48,18 @@ namespace {
 
             Value *codegen() override;
     };
+    // 関数呼び出しを行うときのクラス
+    class CallAST: public ExprAST {
+        std::string Callee;
+        std::vector<std::unique_ptr<ExprAST>> Args;
 
+        public:
+            CallAST(const std::string &Callee,
+                    std::vector<std::unique_ptr<ExprAST>> Args)
+                : Callee(Callee), Args(std::move(Args)) {}
+            
+            Value *codegen() override;
+    };
     // 第一回の課題では関数の定義・呼び出しは扱いませんが、後々のつながりを良くする為と
     // オブジェクトファイルのエントリーポイントを作り"それらしく"するために関数と関数シグネチャー
     // のクラスを作ります。
@@ -100,13 +121,17 @@ static int GetTokPrecedence() {
 
 // LogError - エラーを表示しnullptrを返してくれるエラーハンドリング関数
 std::unique_ptr<ExprAST> LogError(const char *Str) {
-    fprintf(stderr, "Error: %s\n", Str);
+    fprintf(stderr, "%s\n", Str);
+    return nullptr;
+}
+std::unique_ptr<PrototypeAST> LogErrorP(const char *Str) {
+    fprintf(stderr, "%s\n", Str);
     return nullptr;
 }
 
 // Forward declaration
 static std::unique_ptr<ExprAST> ParseExpression();
-
+static std::unique_ptr<ExprAST> ParseIdentifierExpr();
 // 数値リテラルをパースする関数。
 static std::unique_ptr<ExprAST> ParseNumberExpr() {
     // NumberASTのValにlexerからnumValを読んできて、セットする。
@@ -133,7 +158,7 @@ static std::unique_ptr<ExprAST> ParseParenExpr() {
     getNextToken();
     auto Result = ParseExpression();
     if(CurTok != ')')
-        return LogError("no parenthesis end found when expecting token `)`");
+        return LogError("Expected token `)`, not Found.");
     getNextToken();
     return Result;
 }
@@ -142,12 +167,44 @@ static std::unique_ptr<ExprAST> ParseParenExpr() {
 static std::unique_ptr<ExprAST> ParsePrimary() {
     switch (CurTok) {
         default:
-            return LogError("unknown token when expecting an expression");
+            return LogError("unknown token when expecting an expression in ParsePrimary.");
+        case tok_identifier:
+            return ParseIdentifierExpr();
         case tok_number:
             return ParseNumberExpr();
         case '(':
             return ParseParenExpr();
     }
+}
+
+static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
+    std::string IdName = lexer.getIdentifierStr();
+
+    getNextToken();
+
+    if (CurTok != '(')
+        return llvm::make_unique<VariableAST>(IdName);
+
+    getNextToken(); // skip `(`
+    // std::cout<< "In ParseIdentifierExpr " <<CurTok<<std::endl;
+    // ここでtok_numberが来たときの処理が分からない
+    std::vector<std::unique_ptr<ExprAST>> Args;
+    if (CurTok != ')') {
+        while(true) {
+            if (auto Arg = ParseExpression())
+                Args.push_back(std::move(Arg));
+            else
+                return nullptr;
+            if (CurTok == ')')
+                break;
+            if (CurTok != ',')
+                return LogError("Expected `)` or `,` in arg list in ParseIdentifierExpr.");
+            getNextToken(); // skip `,` next arg
+        }
+    }
+    getNextToken(); // skip `)`
+    // std::cout<<"idname "<<IdName<<std::endl;
+    return llvm::make_unique<CallAST>(IdName, std::move(Args));
 }
 
 // TODO 1.6: 二項演算のパーシングを実装してみよう
@@ -207,6 +264,48 @@ static std::unique_ptr<ExprAST> ParseExpression() {
         return nullptr;
 
     return ParseBinOpRHS(0, std::move(LHS));
+}
+// 関数の名前と、引数のセットを取り出す
+// 関数の中身は、FunctionASTで処理する
+static std::unique_ptr<PrototypeAST> ParsePrototype() {
+    if (CurTok != tok_identifier)
+        return LogErrorP("Expected function name in ParsePrototype.");
+    
+    std::string FnName = lexer.getIdentifierStr();
+    getNextToken();
+    if (CurTok != '(')
+        return LogErrorP("Expected `(` in prototype.");
+    
+    std::vector<std::string> ArgNames;
+    // ここを、`)`でbreak, `,`がきたらgetNextTokenみたいにする
+    // getNextToken(); // skip `(`
+    // std::cout<<"Parsef "<<(char)CurTok<<std::endl;
+    while (true) {
+        if (getNextToken() != tok_identifier) // x, y, z, ...
+            // std::cout<<"Parse "<<(char)CurTok<<std::endl;
+            return LogErrorP("Expected Identifier in ParsePrototype");
+        // std::cout<<"Parses "<<(char)CurTok<<std::endl;
+        ArgNames.push_back(lexer.getIdentifierStr());
+        getNextToken(); // skip tok_identifier
+        if (CurTok == ')')
+            break;
+        if (CurTok != ',')
+            return LogErrorP("Expected `,` in ParsePrototype.");
+    }
+        
+    getNextToken(); // skip `)`
+    return llvm::make_unique<PrototypeAST>(FnName, std::move(ArgNames));
+}
+
+
+static std::unique_ptr<FunctionAST> ParseDefinition() {
+    getNextToken(); // skip def -> get identifierStr
+    auto Proto = ParsePrototype();
+    if (!Proto)
+        return nullptr;
+    if (auto E = ParseExpression())
+        return llvm::make_unique<FunctionAST>(std::move(Proto), std::move(E));
+    return nullptr;
 }
 
 // パーサーのトップレベル関数。まだ関数定義は実装しないので、今のmc言語では

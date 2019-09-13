@@ -15,6 +15,9 @@ static IRBuilder<> Builder(Context);
 // このModuleはC++ Moduleとは何の関係もなく、LLVM IRを格納するトップレベルオブジェクトです。
 static std::unique_ptr<Module> myModule;
 
+// for VariableAST
+static std::map<std::string, Value *> NamedValues;
+
 // https://llvm.org/doxygen/classllvm_1_1Value.html
 // llvm::Valueという、LLVM IRのオブジェクトでありFunctionやModuleなどを構成するクラスを使います
 Value *NumberAST::codegen() {
@@ -25,6 +28,14 @@ Value *NumberAST::codegen() {
 Value *LogErrorV(const char *str) {
   LogError(str);
   return nullptr;
+}
+
+Value *VariableAST::codegen() {
+  Value *V = NamedValues[Name];
+  // std::cout<<Name<<std::endl;
+  if (!V)
+    return LogErrorV("Unknown variable name in VariableAST::codegen");
+  return V;
 }
 
 Value *BinaryAST::codegen() {
@@ -50,6 +61,28 @@ Value *BinaryAST::codegen() {
   }
 }
 
+
+// CallAST::codegen
+Value *CallAST::codegen() {
+  Function *CalleeF = myModule->getFunction(Callee);
+  if (!CalleeF)
+    return LogErrorV("Unknown function referenced in CallAST::codegen.");
+  
+  if (CalleeF->arg_size() != Args.size())
+    return LogErrorV("Incorrect # arguments passed in CallAST::codegen.");
+  
+  std::vector<Value *> ArgsV;
+  for (unsigned i = 0, e = Args.size(); i!=e; ++i) {
+    ArgsV.push_back(Args[i]->codegen());
+    if (!ArgsV.back())
+      return nullptr;
+  }
+
+  return Builder.CreateCall(CalleeF, ArgsV, "calltmp");
+}
+
+
+
 Function *PrototypeAST::codegen() {
   // MC言語では変数の型も関数の返り値もintの為、関数の返り値をInt64にする。
   std::vector<Type *> prototype(Args.size(), Type::getInt64Ty(Context));
@@ -72,14 +105,21 @@ Function *FunctionAST::codegen() {
   // この関数が既にModuleに登録されているか確認
   Function *function = myModule->getFunction(Proto->getName());
   // 関数名が見つからなかったら、新しくこの関数のIRクラスを作る。
-  if (!function)
+  if (!function){
     function = Proto->codegen();
+  }
   if (!function)
     return nullptr;
 
   // エントリーポイントを作る
   BasicBlock *BB = BasicBlock::Create(Context, "entry", function);
   Builder.SetInsertPoint(BB);
+
+  // 関数の引数名を登録
+  NamedValues.clear();
+  for (auto &Arg : function->args()){
+    NamedValues[Arg.getName()] = &Arg;
+  }
 
   // 関数のbody(ExprASTから継承されたNumberASTかBinaryAST)をcodegenする
   if (Value *RetVal = Body->codegen()) {
@@ -122,6 +162,23 @@ static void HandleTopLevelExpression() {
   }
 }
 
+static void HandleDefinition() {
+  if (auto FnAST = ParseDefinition()) {
+    // LogErrorV("Parsed a function definition in codegen.");
+    if (auto *FnIR = FnAST->codegen()) {
+      streamstr="";
+      // std::cout<<"ok?"<<std::endl;
+      // FnIR->print(stream);
+      FnIR->print(errs());
+      fprintf(stderr, "\n");
+      // stream << errs();
+    }
+  } else {
+    // Error
+    getNextToken();
+  }
+}
+
 static void MainLoop() {
 myModule = llvm::make_unique<Module>("my cool jit", Context);
   while (true) {
@@ -132,6 +189,9 @@ myModule = llvm::make_unique<Module>("my cool jit", Context);
       return;
     case ';': // ';'で始まった場合、無視します
       getNextToken();
+      break;
+    case tok_def:
+      HandleDefinition();
       break;
     default:
       HandleTopLevelExpression();
